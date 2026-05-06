@@ -25,17 +25,35 @@ export interface AutoOrchestrationModule {
   start(sessionContext: AutoSessionContext): Promise<AutoAdvanceResult>;
   advance(): Promise<AutoAdvanceResult>;
   resume(): Promise<AutoAdvanceResult>;
+  /** Optional while call sites migrate off stop("pause") semantics. */
+  pause?(reason: string): Promise<AutoAdvanceResult>;
   stop(reason: string): Promise<AutoAdvanceResult>;
   getStatus(): AutoStatus;
 }
 
+export interface DispatchEvidence {
+  matchedRule?: string;
+  phase?: string;
+  [key: string]: unknown;
+}
+
+export interface DispatchDecision {
+  unitType: string;
+  unitId: string;
+  reason: string;
+  preconditions: string[];
+  evidence?: DispatchEvidence;
+}
+
 export interface DispatchAdapter {
-  decideNextUnit(): Promise<{
-    unitType: string;
-    unitId: string;
-    reason: string;
-    preconditions: string[];
-  } | null>;
+  decideNextUnit(): Promise<DispatchDecision | null>;
+}
+
+export interface RecoveryDecision {
+  action: "retry" | "pause" | "escalate" | "stop";
+  reason: string;
+  retryAfterMs?: number;
+  isTransient?: boolean;
 }
 
 export interface RecoveryAdapter {
@@ -43,15 +61,20 @@ export interface RecoveryAdapter {
     error: unknown;
     unitType?: string;
     unitId?: string;
-  }): Promise<{
-    action: "retry" | "escalate" | "stop";
-    reason: string;
-  }>;
+  }): Promise<RecoveryDecision>;
 }
 
 export interface WorktreeAdapter {
   prepareForUnit(unitType: string, unitId: string): Promise<void>;
   syncAfterUnit(unitType: string, unitId: string): Promise<void>;
+  finalizeMilestoneTransition(input: {
+    milestoneId: string;
+    reason: string;
+  }): Promise<void>;
+  teardownMilestone(input: {
+    milestoneId: string;
+    preserveBranch?: boolean;
+  }): Promise<void>;
   cleanupOnStop(reason: string): Promise<void>;
 }
 
@@ -62,6 +85,11 @@ export interface HealthAdapter {
 
 export interface RuntimePersistenceAdapter {
   ensureLockOwnership(): Promise<void>;
+  claimAndJournalDispatch(decision: DispatchDecision): Promise<{
+    kind: "opened" | "already-active" | "stale-lease" | "skipped";
+    dispatchId?: number;
+    reason?: string;
+  }>;
   journalTransition(event: {
     name: string;
     reason?: string;

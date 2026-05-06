@@ -625,16 +625,8 @@ function makeMockDeps(
     sendDesktopNotification: () => {},
     setActiveMilestoneId: () => {},
     pruneQueueOrder: () => {},
-    isInAutoWorktree: () => false,
-    shouldUseWorktreeIsolation: () => false,
-    mergeMilestoneToMain: () => ({ pushed: false, codeFilesChanged: true }),
-    teardownAutoWorktree: () => {},
-    createAutoWorktree: () => "/tmp/wt",
     captureIntegrationBranch: () => {},
     getIsolationMode: () => "none",
-    getCurrentBranch: () => "main",
-    autoWorktreeBranch: () => "auto/M001",
-    resolveMilestoneFile: () => null,
     reconcileMergeState: () => "clean",
     preflightCleanRoot: () => ({ stashPushed: false, summary: "" }),
     postflightPopStash: () => {},
@@ -670,9 +662,6 @@ function makeMockDeps(
     isDbAvailable: () => false,
     reorderForCaching: (p: string) => p,
     existsSync: (p: string) => p.endsWith(".git") || p.endsWith("package.json"),
-    readFileSync: () => "",
-    atomicWriteSync: () => {},
-    GitServiceImpl: class {} as any,
     resolver: {
       get workPath() {
         return "/tmp/project";

@@ -23,6 +23,8 @@ function makeDeps(overrides: Partial<AutoOrchestratorDeps> = {}): { deps: AutoOr
     worktree: {
       async prepareForUnit() { calls.push("worktree.prepare"); },
       async syncAfterUnit() { calls.push("worktree.sync"); },
+      async finalizeMilestoneTransition() { calls.push("worktree.finalize"); },
+      async teardownMilestone() { calls.push("worktree.teardown"); },
       async cleanupOnStop() { calls.push("worktree.cleanup"); },
     },
     health: {
@@ -34,6 +36,10 @@ function makeDeps(overrides: Partial<AutoOrchestratorDeps> = {}): { deps: AutoOr
     },
     runtime: {
       async ensureLockOwnership() { calls.push("runtime.lock"); },
+      async claimAndJournalDispatch() {
+        calls.push("runtime.claim");
+        return { kind: "opened" as const, dispatchId: 1 };
+      },
       async journalTransition(event) { calls.push(`journal:${event.name}`); },
     },
     notifications: {
@@ -91,6 +97,10 @@ test("advance() uses recovery on error", async () => {
   const { deps, calls } = makeDeps({
     runtime: {
       async ensureLockOwnership() { throw new Error("lock lost"); },
+      async claimAndJournalDispatch() {
+        calls.push("runtime.claim");
+        return { kind: "opened" as const, dispatchId: 1 };
+      },
       async journalTransition(event) { calls.push(`journal:${event.name}`); },
     },
     recovery: {
@@ -200,6 +210,10 @@ test("recovery stop clears activeUnit", async () => {
   const { deps, calls } = makeDeps({
     runtime: {
       async ensureLockOwnership() { throw new Error("boom"); },
+      async claimAndJournalDispatch() {
+        calls.push("runtime.claim");
+        return { kind: "opened" as const, dispatchId: 1 };
+      },
       async journalTransition(event) { calls.push(`journal:${event.name}`); },
     },
     recovery: {
@@ -221,6 +235,10 @@ test("recovery retry maps to paused result", async () => {
   const { deps, calls } = makeDeps({
     runtime: {
       async ensureLockOwnership() { throw new Error("boom"); },
+      async claimAndJournalDispatch() {
+        calls.push("runtime.claim");
+        return { kind: "opened" as const, dispatchId: 1 };
+      },
       async journalTransition(event) { calls.push(`journal:${event.name}`); },
     },
     recovery: {
@@ -266,6 +284,10 @@ test("error path emits error notification", async () => {
   const { deps, calls } = makeDeps({
     runtime: {
       async ensureLockOwnership() { throw new Error("boom"); },
+      async claimAndJournalDispatch() {
+        calls.push("runtime.claim");
+        return { kind: "opened" as const, dispatchId: 1 };
+      },
       async journalTransition(event) { calls.push(`journal:${event.name}`); },
     },
     recovery: {
@@ -315,6 +337,25 @@ test("resume() emits resume notification", async () => {
   await orchestrator.resume();
 
   assert.ok(calls.includes("notify:resume"));
+});
+
+test("pause() transitions to paused and clears idempotent lock", async () => {
+  const { deps, calls } = makeDeps();
+  const orchestrator = createAutoOrchestrator(deps);
+
+  const first = await orchestrator.advance();
+  const blocked = await orchestrator.advance();
+  const paused = await orchestrator.pause!("user-request");
+  const pausedStatus = orchestrator.getStatus();
+  const resumedAdvance = await orchestrator.advance();
+
+  assert.equal(first.kind, "advanced");
+  assert.equal(blocked.kind, "blocked");
+  assert.equal(paused.kind, "paused");
+  assert.equal(pausedStatus.phase, "paused");
+  assert.equal(resumedAdvance.kind, "advanced");
+  assert.ok(calls.includes("journal:pause"));
+  assert.ok(calls.includes("notify:pause"));
 });
 
 test("stopped with no remaining units clears idempotent lock for next advance", async () => {
