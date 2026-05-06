@@ -69,7 +69,11 @@ export async function checkRuntimeHealth(
             if (updated?.status && updated.status !== "active") {
               clearLock(basePath);
               fixesApplied.push("cleared stale auto-mode worker state");
+            } else {
+              fixesApplied.push("stale crash lock fix attempted but worker status remained active");
             }
+          } else {
+            fixesApplied.push(`stale crash lock fix skipped: no matching worker row found for ${projectRoot}`);
           }
         }
       }
