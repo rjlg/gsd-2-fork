@@ -872,7 +872,7 @@ function cleanupAfterLoopExit(ctx: ExtensionContext): void {
 
   // A transient provider-error pause intentionally leaves the paused badge
   // visible so the user still has a resumable auto-mode signal on screen.
-  if (!s.getLifecycleState().paused) {
+  if (!s.paused) {
     ctx.ui.setStatus("gsd-auto", undefined);
     ctx.ui.setWidget("gsd-progress", undefined);
     initHealthWidget(ctx);
@@ -1837,7 +1837,7 @@ export async function startAuto(
     }
   }
 
-  if (s.getLifecycleState().paused) {
+  if (s.paused) {
     const resumeLock = acquireSessionLock(base);
     if (!resumeLock.acquired) {
       // Reset paused state so isAutoPaused() doesn't stick true after lock failure.
