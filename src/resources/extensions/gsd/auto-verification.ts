@@ -48,6 +48,41 @@ export interface VerificationContext {
 
 export type VerificationResult = "continue" | "retry" | "pause";
 
+interface VerificationSemanticsInput {
+  passed: boolean;
+  checks: Array<{ exitCode: number }>;
+  discoverySource: string;
+  outcome?: string | null;
+}
+
+interface VerificationSemanticsDecision {
+  pause: boolean;
+  reason?: string;
+}
+
+export function evaluateVerificationOutcomeSemantics(
+  result: VerificationSemanticsInput,
+): VerificationSemanticsDecision {
+  const normalizedOutcome = typeof result.outcome === "string"
+    ? result.outcome.toLowerCase()
+    : null;
+
+  if (normalizedOutcome === "manual-attention") {
+    return { pause: true, reason: "manual-attention" };
+  }
+
+  if (normalizedOutcome === "no-command") {
+    return { pause: true, reason: "no-command" };
+  }
+
+  const implicitNoCommand = result.discoverySource === "none" && result.checks.length === 0;
+  if (implicitNoCommand) {
+    return { pause: true, reason: "no-command" };
+  }
+
+  return { pause: false };
+}
+
 function isInfraVerificationFailure(stderr: string): boolean {
   return /\b(ENOENT|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|spawn\s+\S+\s+ENOENT|command not found)\b/i.test(
     stderr,
@@ -375,6 +410,26 @@ export async function runPostUnitVerification(
       return "continue";
     }
 
+    const outcomeSemantics = evaluateVerificationOutcomeSemantics({
+      passed: result.passed,
+      checks: result.checks,
+      discoverySource: result.discoverySource,
+      outcome: (result as VerificationGateResult & { outcome?: string }).outcome,
+    });
+    if (outcomeSemantics.pause) {
+      s.verificationRetryCount.delete(s.currentUnit.id);
+      s.pendingVerificationRetry = null;
+      const reasonText = outcomeSemantics.reason === "manual-attention"
+        ? "manual-attention"
+        : "no-command";
+      ctx.ui.notify(
+        `Verification requires ${reasonText} handling — pausing for human review`,
+        "error",
+      );
+      await pauseAuto(ctx, pi);
+      return "pause";
+    }
+
     // ── Post-execution checks (run after main verification passes for execute-task units) ──
     let postExecChecks: PostExecutionCheckJSON[] | undefined;
     let postExecBlockingFailure = false;
@@ -491,8 +546,8 @@ export async function runPostUnitVerification(
             }
           }
         } catch (postExecErr) {
-          // Post-execution check errors are non-fatal — log and continue
           logWarning("engine", `gsd-post-exec: error — ${(postExecErr as Error).message}`);
+          throw postExecErr;
         }
       }
     }
@@ -617,9 +672,15 @@ export async function runPostUnitVerification(
       return "pause";
     }
   } catch (err) {
-    // Gate errors are non-fatal
     logWarning("engine", `verification-gate error: ${(err as Error).message}`);
-    return "continue";
+    s.verificationRetryCount.delete(s.currentUnit.id);
+    s.pendingVerificationRetry = null;
+    ctx.ui.notify(
+      `Verification checks errored (${(err as Error).message}) — pausing for human review`,
+      "error",
+    );
+    await pauseAuto(ctx, pi);
+    return "pause";
   }
 }
 
